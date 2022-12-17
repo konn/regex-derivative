@@ -156,9 +156,7 @@ derivative c = go
     goCo (Coyoneda g f) = g <$> go1 f
 
     go1 :: RE1 c x -> RE c x
-    go1 (MSym1 p)
-      | Just x <- p c = pure x
-      | otherwise = empty
+    go1 (MSym1 p) = maybe empty pure $ p c
     go1 (l :<&&>: r) = go l <&&> go r
     go1 (Neg1 re) = neg $ go re
     go1 (Star step (z :: z) re) =
