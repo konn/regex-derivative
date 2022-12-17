@@ -169,7 +169,7 @@ derivative c = go
           id
           re
 
-{- | We need 'Foldable' to empty
+{- |
 
 >>> nullable @Maybe $ string "hoge" <|> pure "Empty"
 Just "Empty"
@@ -195,11 +195,7 @@ nullable = go
   where
     go :: Alternative g => RE c x -> g x
     {-# INLINE go #-}
-    go = runAlt goCo . unRE
-
-    goCo :: Alternative g => Coyoneda (RE1 c) x -> g x
-    {-# INLINE goCo #-}
-    goCo (Coyoneda g f) = g <$> go1 f
+    go = runAlt (lowerCoyoneda . hoistCoyoneda go1) . unRE
 
     go1 :: Alternative g => RE1 c b -> g b
     go1 MSym1 {} = empty
