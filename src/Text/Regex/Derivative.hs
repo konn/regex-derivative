@@ -36,6 +36,7 @@ import Data.Monoid (Ap)
 import Data.Monoid qualified as Monoid
 import Data.Profunctor hiding (Star)
 import Data.String (IsString (..))
+import GHC.Generics (Generic, Generic1)
 
 data RE1 c a where
   MSym1 :: (c -> Maybe a) -> RE1 c a
@@ -137,6 +138,25 @@ matchL :: RE c a -> L.Fold c (Maybe a)
 {-# INLINE matchL #-}
 matchL re = L.Fold (flip derivative) re nullable
 
+data MaybeProxy a = Fail | Ok
+  deriving (Show, Eq, Ord, Generic, Generic1, Functor, Foldable, Traversable)
+
+instance Applicative MaybeProxy where
+  pure = const Ok
+  {-# INLINE pure #-}
+  Ok <*> Ok = Ok
+  _ <*> _ = Ok
+  {-# INLINE (<*>) #-}
+  liftA2 _ Ok Ok = Ok
+  liftA2 _ _ _ = Fail
+  {-# INLINE liftA2 #-}
+
+instance Alternative MaybeProxy where
+  empty = Fail
+  {-# INLINE empty #-}
+  Fail <|> !w = w
+  Ok <|> _ = Ok
+
 derivative :: forall c a. c -> RE c a -> RE c a
 derivative c = go
   where
@@ -198,5 +218,8 @@ nullable = go
     go1 = \case
       MSym1 {} -> empty
       l :<&&>: r -> go l <*> go r
-      Neg1 a -> maybe (pure ()) (const empty) $ go a
+      Neg1 a ->
+        case go a of
+          Fail -> pure ()
+          Ok -> empty
       Star _ z _ -> pure z
