@@ -160,9 +160,8 @@ derivative c = go
     go1 (l :<&&>: r) = go l <&&> go r
     go1 (Neg1 re) = neg $ go re
     go1 (Star step (z :: z) re) =
-      (&)
-        <$> go (step z <$> re)
-        <*> reFoldl
+      go (step z <$> re)
+        <**> reFoldl
           (\lft !a !w -> lft $! step w a)
           id
           re
@@ -193,11 +192,14 @@ nullable = go
   where
     go :: Alternative g => RE c x -> g x
     {-# INLINE go #-}
+    {-# SPECIALIZE INLINE go :: RE c x -> Maybe x #-}
     go = runAlt (lowerCoyoneda . hoistCoyoneda go1) . unRE
 
     go1 :: Alternative g => RE1 c b -> g b
-    go1 MSym1 {} = empty
-    go1 (l :<&&>: r) = go l <*> go r
-    go1 (Neg1 a) =
-      maybe (pure ()) (const empty) $ go a
-    go1 (Star _ z _) = pure z
+    {-# SPECIALIZE INLINE go1 :: RE1 c x -> Maybe x #-}
+    {-# INLINE go1 #-}
+    go1 = \case
+      MSym1 {} -> empty
+      l :<&&>: r -> go l <*> go r
+      Neg1 a -> maybe (pure ()) (const empty) $ go a
+      Star _ z _ -> pure z
