@@ -31,7 +31,6 @@ import Control.Applicative
 import Control.Foldl qualified as L
 import Control.Lens (Traversal, alaf)
 import Control.Monad (guard)
-import Data.Function ((&))
 import Data.Functor.Coyoneda
 import Data.Monoid (Ap)
 import Data.Monoid qualified as Monoid
@@ -150,10 +149,8 @@ derivative c = go
     goF :: AltF (Coyoneda (RE1 c)) x -> RE c x
     goF Pure {} = empty
     goF (Ap coy f) =
-      goCo coy <**> RE f <|> nullable (RE $ liftAlt coy) <**> goAlt f
-
-    goCo :: Coyoneda (RE1 c) x -> RE c x
-    goCo (Coyoneda g f) = g <$> go1 f
+      lowerCoyoneda (hoistCoyoneda go1 coy) <**> RE f
+        <|> nullable (RE $ liftAlt coy) <**> goAlt f
 
     go1 :: RE1 c x -> RE c x
     go1 (MSym1 p) = maybe empty pure $ p c
