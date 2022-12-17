@@ -1,14 +1,18 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GHC2021 #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Text.Regex.Derivative (
   RE,
-  matchesL,
+  matchL,
+  premapRE,
+  reFoldl,
   anySym,
   sym,
   psym,
+  msym,
   neg,
   (<&&>),
   (<&&),
@@ -26,16 +30,19 @@ import Control.Alternative.Free
 import Control.Applicative
 import Control.Foldl qualified as L
 import Control.Lens (Traversal, alaf)
+import Control.Monad (guard)
+import Data.Function ((&))
 import Data.Functor.Coyoneda
 import Data.Monoid (Ap)
 import Data.Monoid qualified as Monoid
+import Data.Profunctor hiding (Star)
 import Data.String (IsString (..))
 
 data RE1 c a where
-  Sym1 :: c -> RE1 c c
-  PSym1 :: (c -> Bool) -> RE1 c c
+  MSym1 :: (c -> Maybe a) -> RE1 c a
   (:<&&>:) :: RE c (a -> b) -> RE c a -> RE1 c b
   Neg1 :: RE c a -> RE1 c ()
+  Star :: (b -> a -> b) -> b -> RE c a -> RE1 c b
 
 newtype RE c a = RE {unRE :: Alt (Coyoneda (RE1 c)) a}
   deriving newtype (Functor, Applicative, Alternative)
@@ -49,13 +56,21 @@ eps :: RE c ()
 {-# INLINE eps #-}
 eps = pure ()
 
-sym :: c -> RE c c
+reFoldl :: (b -> a -> b) -> b -> RE s a -> RE s b
+{-# INLINE reFoldl #-}
+reFoldl = fmap (fmap embed1) . Star
+
+sym :: Eq c => c -> RE c c
 {-# INLINE sym #-}
-sym = embed1 . Sym1
+sym = psym . (==)
+
+msym :: (c -> Maybe a) -> RE c a
+{-# INLINE msym #-}
+msym = embed1 . MSym1
 
 psym :: (c -> Bool) -> RE c c
 {-# INLINE psym #-}
-psym = embed1 . PSym1
+psym p = msym $ \c -> c <$ guard (p c)
 
 neg :: RE c a -> RE c ()
 {-# INLINE neg #-}
@@ -85,11 +100,11 @@ l .||. r = Left <$> l <|> Right <$> r
 
 infixl 3 .||.
 
-string :: Traversable t => t c -> RE c (t c)
+string :: (Traversable t, Eq c) => t c -> RE c (t c)
 {-# INLINE string #-}
 string = traverse sym
 
-stringOf :: Traversal s t c c -> s -> RE c t
+stringOf :: Eq c => Traversal s t c c -> s -> RE c t
 {-# INLINE stringOf #-}
 stringOf f = f sym
 
@@ -99,13 +114,31 @@ instance (c ~ Char, str ~ [Char]) => IsString (RE c str) where
 
 anySym :: RE c c
 {-# INLINE anySym #-}
-anySym = psym $ const True
+anySym = msym Just
 
-matchesL :: Eq c => RE c a -> L.Fold c (Maybe a)
-{-# INLINE matchesL #-}
-matchesL re = L.Fold (flip derivative) re nullable
+premapRE :: forall c' c a. (c' -> c) -> RE c a -> RE c' a
+premapRE g = go'
+  where
+    go' :: RE c x -> RE c' x
+    go' = runAlt (lowerCoyoneda . hoistCoyoneda go) . unRE
+    go :: RE1 c x -> RE c' x
+    go = \case
+      MSym1 p -> msym $ p . g
+      Neg1 p -> neg $ go' p
+      l :<&&>: r -> go' l <&&> go' r
+      Star step z re -> reFoldl step z (go' re)
 
-derivative :: forall c a. Eq c => c -> RE c a -> RE c a
+instance Profunctor RE where
+  lmap = premapRE
+  {-# INLINE lmap #-}
+  rmap = fmap
+  {-# INLINE rmap #-}
+
+matchL :: RE c a -> L.Fold c (Maybe a)
+{-# INLINE matchL #-}
+matchL re = L.Fold (flip derivative) re nullable
+
+derivative :: forall c a. c -> RE c a -> RE c a
 derivative c = go
   where
     go :: RE c x -> RE c x
@@ -123,14 +156,18 @@ derivative c = go
     goCo (Coyoneda g f) = g <$> go1 f
 
     go1 :: RE1 c x -> RE c x
-    go1 (Sym1 c')
-      | c == c' = pure c
+    go1 (MSym1 p)
+      | Just x <- p c = pure x
       | otherwise = empty
-    go1 (PSym1 p)
-      | p c = pure c
-      | otherwise = empty
-    go1 (l :<&&>: r) = go l <*> go r
+    go1 (l :<&&>: r) = go l <&&> go r
     go1 (Neg1 re) = neg $ go re
+    go1 (Star step (z :: z) re) =
+      (&)
+        <$> go (step z <$> re)
+        <*> reFoldl
+          (\lft !a !w -> lft $! step w a)
+          id
+          re
 
 {- | We need 'Foldable' to empty
 
@@ -165,8 +202,8 @@ nullable = go
     goCo (Coyoneda g f) = g <$> go1 f
 
     go1 :: Alternative g => RE1 c b -> g b
-    go1 Sym1 {} = empty
-    go1 PSym1 {} = empty
+    go1 MSym1 {} = empty
     go1 (l :<&&>: r) = go l <*> go r
     go1 (Neg1 a) =
       maybe (pure ()) (const empty) $ go a
+    go1 (Star _ z _) = pure z
