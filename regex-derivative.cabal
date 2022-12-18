@@ -34,6 +34,7 @@ library
   build-depends:
       base >=4.7 && <5
     , bytestring
+    , dlist
     , foldl
     , free
     , kan-extensions
@@ -54,6 +55,7 @@ executable regex-derivative-exe
   build-depends:
       base >=4.7 && <5
     , bytestring
+    , dlist
     , foldl
     , free
     , kan-extensions
@@ -76,6 +78,7 @@ test-suite regex-derivative-test
   build-depends:
       base >=4.7 && <5
     , bytestring
+    , dlist
     , foldl
     , free
     , kan-extensions

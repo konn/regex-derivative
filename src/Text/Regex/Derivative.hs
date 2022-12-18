@@ -3,12 +3,14 @@
 {-# LANGUAGE GHC2021 #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Text.Regex.Derivative (
   RE,
   matchL,
   premapRE,
   reFoldl,
+  reFold,
   anySym,
   sym,
   psym,
@@ -31,8 +33,9 @@ import Control.Applicative
 import Control.Foldl qualified as L
 import Control.Lens (Traversal, alaf)
 import Control.Monad (guard)
+import Data.Functor ((<&>))
 import Data.Functor.Coyoneda
-import Data.Monoid (Ap)
+import Data.Monoid (Ap, Dual (..), Endo (..))
 import Data.Monoid qualified as Monoid
 import Data.Profunctor hiding (Star)
 import Data.String (IsString (..))
@@ -56,9 +59,15 @@ eps :: RE c ()
 {-# INLINE eps #-}
 eps = pure ()
 
+-- | Kleene Star, expressed as a left-fold
 reFoldl :: (b -> a -> b) -> b -> RE s a -> RE s b
 {-# INLINE reFoldl #-}
 reFoldl = fmap (fmap embed1) . Star
+
+-- | Kleene star, expressed as a monoidal 'fold'.
+reFold :: Monoid w => RE s w -> RE s w
+{-# INLINE reFold #-}
+reFold = reFoldl (<>) mempty
 
 sym :: Eq c => c -> RE c c
 {-# INLINE sym #-}
@@ -134,6 +143,20 @@ instance Profunctor RE where
   rmap = fmap
   {-# INLINE rmap #-}
 
+{-
+>>> import qualified Data.DList as DL
+>>> import Data.Function (on)
+>>> import Data.Monoid (Sum(..))
+>>> evens p = DL.toList <$> reFold (((<>) `on` DL.singleton) <$> p <*> p)
+>>> odds p = (:) <$> p <*> evens p
+>>> pcount p = getSum <$> reFold (anySym <&> \c -> if p c then Sum (1 :: Int) else 0)
+
+>>> L.fold (matchL $ evens $ sym 'c' <|> sym 'd') "cdcdcc"
+Just "cdcdcc"
+
+>>> L.fold (matchL $ evens (sym 'c' <|> sym 'd') .&&. pcount (== 'c')) "ccddcdcc"
+Just ("ccddcdcc",5)
+-}
 matchL :: RE c a -> L.Fold c (Maybe a)
 {-# INLINE matchL #-}
 matchL re = L.Fold (flip derivative) re nullable
@@ -178,10 +201,10 @@ derivative c = go
     go1 (Neg1 re) = neg $ go re
     go1 (Star step (z :: z) re) =
       go (step z <$> re)
-        <**> reFoldl
-          (\lft !a !w -> lft $! step w a)
-          id
-          re
+        <**> ( appEndo . getDual
+                <$> reFold
+                  (re <&> \ !a -> Dual $ Endo $ \ !w -> step w a)
+             )
 
 {- |
 
