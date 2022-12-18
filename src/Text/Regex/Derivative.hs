@@ -145,7 +145,7 @@ instance Applicative MaybeProxy where
   pure = const Ok
   {-# INLINE pure #-}
   Ok <*> Ok = Ok
-  _ <*> _ = Ok
+  _ <*> _ = Fail
   {-# INLINE (<*>) #-}
   liftA2 _ Ok Ok = Ok
   liftA2 _ _ _ = Fail
