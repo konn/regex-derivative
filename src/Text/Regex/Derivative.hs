@@ -233,10 +233,12 @@ nullable = go
     go :: Alternative g => RE c x -> g x
     {-# INLINE go #-}
     {-# SPECIALIZE INLINE go :: RE c x -> Maybe x #-}
+    {-# SPECIALIZE INLINE go :: RE c x -> MaybeProxy x #-}
     go = runAlt (lowerCoyoneda . hoistCoyoneda go1) . unRE
 
     go1 :: Alternative g => RE1 c b -> g b
     {-# SPECIALIZE INLINE go1 :: RE1 c x -> Maybe x #-}
+    {-# SPECIALIZE INLINE go1 :: RE1 c x -> MaybeProxy x #-}
     {-# INLINE go1 #-}
     go1 = \case
       MSym1 {} -> empty
